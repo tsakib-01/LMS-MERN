@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Learning Management System</title>
+  
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- React and ReactDOM (React 18) -->
+  <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.development.js"></script>
+  
+  <!-- Babel for JSX -->
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js"></script>
+  
+  <!-- React Router -->
+  <script src="https://cdn.jsdelivr.net/npm/react-router-dom@6.21.3/umd/react-router-dom.development.js"></script>
+  
+  <!-- Axios -->
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <!-- Full React App -->
+  <script type="text/babel">
+    const { StrictMode } = React;
+    const { createRoot } = ReactDOM;
+    const { BrowserRouter, Routes, Route, Link, useNavigate } = ReactRouterDOM;
+
+    // Navbar Component
+    const Navbar = () => {
+      return (
+        <nav className="bg-blue-600 text-white px-6 py-4 w-full flex justify-between items-center">
+          <h1 className="text-xl font-bold">My LMS</h1>
+          <div className="space-x-4">
+            <Link to="/" className="hover:underline">Home</Link>
+            <Link to="/courses" className="hover:underline">Courses</Link>
+            <Link to="/dashboard" className="hover:underline">Dashboard</Link>
+            <Link to="/login" className="hover:underline">Login</Link>
+          </div>
+        </nav>
+      );
+    };
+
+    // Pages
+    const Home = () => (
+      <div className="text-center mt-10">
+        <h2 className="text-3xl font-bold mb-4">Welcome to the LMS!</h2>
+        <p className="text-gray-700">Learn anything, anytime, anywhere.</p>
+      </div>
+    );
+
+    const Courses = () => (
+      <div className="text-center mt-10">
+        <h2 className="text-2xl font-bold mb-4">Courses</h2>
+        <ul className="list-disc list-inside text-gray-700">
+          <li>Web Development</li>
+          <li>Data Science</li>
+          <li>AI & Machine Learning</li>
+          <li>Blockchain Basics</li>
+        </ul>
+      </div>
+    );
+
+    const Dashboard = () => (
+      <div className="text-center mt-10">
+        <h2 className="text-2xl font-bold mb-4">Dashboard</h2>
+        <p className="text-gray-700">Your enrolled courses and progress will appear here.</p>
+      </div>
+    );
+
+    const Login = () => {
+      const navigate = useNavigate();
+      const handleLogin = () => {
+        alert("Logged in successfully!");
+        navigate("/dashboard");
+      };
+
+      return (
+        <div className="text-center mt-10">
+          <h2 className="text-2xl font-bold mb-4">Login</h2>
+          <input type="text" placeholder="Email" className="border px-4 py-2 rounded mb-2" /><br/>
+          <input type="password" placeholder="Password" className="border px-4 py-2 rounded mb-4" /><br/>
+          <button onClick={handleLogin} className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">
+            Login
+          </button>
+        </div>
+      );
+    };
+
+    // Main App
+    const App = () => {
+      return (
+        <BrowserRouter>
+          <div className="min-h-screen flex flex-col">
+            <Navbar />
+            <div className="flex-1 p-6 bg-gray-100">
+              <Routes>
+                <Route path="/" element={<Home />} />
+                <Route path="/courses" element={<Courses />} />
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/login" element={<Login />} />
+              </Routes>
+            </div>
+          </div>
+        </BrowserRouter>
+      );
+    };
+
+    // Render App
+    const root = createRoot(document.getElementById('root'));
+    root.render(
+      <StrictMode>
+        <App />
+      </StrictMode>
+    );
+  </script>
+</body>
+</html>
