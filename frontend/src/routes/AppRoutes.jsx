@@ -1,3 +1,6 @@
+
+// At the top with your other imports
+import SetPassword from "../pages/SetPassword";
 import { Routes, Route } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import ProtectedRoute from "../components/ProtectedRoute";
@@ -14,8 +17,11 @@ import Home from "../pages/Home";
 import Login from "../pages/Login";
 import Register from "../pages/Register";
 import CourseDetail from "../pages/CourseDetail";
-import Dashboard from "../pages/Dashboard";
+import Dashboard from "../pages/student/Dashboard";
 import Courses from "../pages/Courses";
+import SimulatedCheckout from "../pages/SimulatedCheckout";
+import PaymentSuccess from "../pages/PaymentSuccess";
+import PaymentCancel from "../pages/PaymentCancel";
 
 // Teacher pages
 import TeacherDashboard from "../pages/teacher/TeacherDashboard";
@@ -46,6 +52,8 @@ const AppRoutes = () => {
 
       {/* Public routes */}
       <Route index element={<Home />} />
+      {/* // Inside <Routes>, with your other public routes */}
+<Route path="set-password/:token" element={<SetPassword />} />
       <Route path="about" element={<About />} />
       <Route path="contact" element={<Contact />} />
       <Route path="login" element={<Login />} />
@@ -59,6 +67,30 @@ const AppRoutes = () => {
         element={
           <ProtectedRoute requiredRole="student">
             <Dashboard />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="payment/simulated-checkout" 
+        element={
+          <ProtectedRoute requiredRole="student">
+            <SimulatedCheckout />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="payment/success" 
+        element={
+          <ProtectedRoute requiredRole="student">
+            <PaymentSuccess />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="payment/cancel" 
+        element={
+          <ProtectedRoute requiredRole="student">
+            <PaymentCancel />
           </ProtectedRoute>
         } 
       />

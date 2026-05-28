@@ -1,6 +1,10 @@
 import { useState, useEffect } from "react";
+import { useAuth } from "../context/AuthContext";
 
 const Contact = () => {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -36,7 +40,7 @@ const Contact = () => {
   useEffect(() => {
     const fetchContactContent = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/content/pages/contact');
+        const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/content/pages/contact`);
         const data = await response.json();
         
         if (data.success) {
@@ -57,7 +61,7 @@ const Contact = () => {
 
     try {
       // Make the POST request to your backend
-      const response = await fetch('http://localhost:5000/api/content/messages', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/content/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -123,6 +127,13 @@ const Contact = () => {
               </div>
             )}
 
+            {isAdmin && (
+              <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3.5 rounded-lg mb-6 text-sm font-medium flex items-center gap-2">
+                <span>🛡️</span>
+                <span>You are logged in as an <strong>Administrator</strong>. Contact forms are disabled for administrative accounts.</span>
+              </div>
+            )}
+
             <form onSubmit={handleSubmit} className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -133,7 +144,8 @@ const Contact = () => {
                   name="name"
                   value={formData.name}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                  disabled={isAdmin}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400"
                   placeholder="John Doe"
                   required
                 />
@@ -148,7 +160,8 @@ const Contact = () => {
                   name="email"
                   value={formData.email}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                  disabled={isAdmin}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400"
                   placeholder="john@example.com"
                   required
                 />
@@ -163,7 +176,8 @@ const Contact = () => {
                   name="subject"
                   value={formData.subject}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                  disabled={isAdmin}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400"
                   placeholder="How can we help?"
                   required
                 />
@@ -177,8 +191,9 @@ const Contact = () => {
                   name="message"
                   value={formData.message}
                   onChange={handleChange}
+                  disabled={isAdmin}
                   rows="6"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent resize-none"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent resize-none disabled:bg-gray-50 disabled:text-gray-400"
                   placeholder="Tell us more about your inquiry..."
                   required
                 ></textarea>
@@ -193,14 +208,14 @@ const Contact = () => {
 
               <button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || isAdmin}
                 className={`w-full text-white py-4 rounded-lg font-semibold transition shadow-lg ${
-                  isSubmitting 
-                    ? 'bg-gray-400 cursor-not-allowed' 
+                  isSubmitting || isAdmin
+                    ? 'bg-gray-400 cursor-not-allowed shadow-none' 
                     : 'bg-gradient-to-r from-orange-500 to-pink-500 hover:from-orange-600 hover:to-pink-600'
                 }`}
               >
-                {isSubmitting ? 'Sending...' : 'Send Message'}
+                {isSubmitting ? 'Sending...' : isAdmin ? 'Admins cannot submit queries' : 'Send Message'}
               </button>
             </form>
           </div>

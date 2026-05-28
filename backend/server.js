@@ -3,6 +3,8 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const dotenv = require("dotenv");
 const path = require("path");
+const fs = require("fs");
+const certificateRoutes = require('./routes/certificates');
 
 // Load environment variables
 dotenv.config();
@@ -19,18 +21,58 @@ app.use(
     credentials: true
   })
 );
-
-// Body parser
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Static uploads
+/* ======================
+   Static File Serving
+   (log → headers → serve — in this exact order)
+====================== */
+
+// Auto-create upload directories if they don't exist
+['uploads/thumbnails', 'uploads/attachments'].forEach(dir => {
+  const full = path.join(__dirname, dir);
+  if (!fs.existsSync(full)) {
+    fs.mkdirSync(full, { recursive: true });
+    console.log(`📁 Created directory: ${full}`);
+  }
+});
+
+// 1. Log first
+app.use("/uploads", (req, res, next) => {
+  console.log(`📂 File request: ${req.path}`);
+  next();
+});
+
+// 2. Set proper headers for different file types
+app.use("/uploads", (req, res, next) => {
+  const ext = path.extname(req.path).toLowerCase();
+  if (ext === '.pdf') {
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+  } else if (ext === '.jpg' || ext === '.jpeg') {
+    res.setHeader('Content-Type', 'image/jpeg');
+  } else if (ext === '.png') {
+    res.setHeader('Content-Type', 'image/png');
+  } else if (ext === '.gif') {
+    res.setHeader('Content-Type', 'image/gif');
+  } else if (ext === '.mp4') {
+    res.setHeader('Content-Type', 'video/mp4');
+  } else if (ext === '.doc') {
+    res.setHeader('Content-Type', 'application/msword');
+  } else if (ext === '.docx') {
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+  }
+  next();
+});
+
+// 3. Serve the files (only ONE declaration)
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 /* ======================
    MongoDB Connection
 ====================== */
-
 const connectDB = async () => {
   try {
     await mongoose.connect(process.env.MONGODB_URI);
@@ -54,36 +96,55 @@ const contactRoutes = require('./routes/contact');
 const contentRoutes = require('./routes/content');
 const adminUserRoutes = require('./routes/adminUsers');
 const teacherRoutes = require('./routes/teacher');
+const dashboardRoutes = require('./routes/dashboardRoutes');
+const studentRoutes = require('./routes/student');
 
 /* ======================
    API Routes
 ====================== */
-
 app.get("/", (req, res) => {
   res.send("LMS API is running");
+});
+
+// Debug route to test file serving
+app.get("/test-upload/:folder/:filename", (req, res) => {
+  const { folder, filename } = req.params;
+  const filePath = path.join(__dirname, "uploads", folder, filename);
+  console.log("🔍 Testing file path:", filePath);
+  if (fs.existsSync(filePath)) {
+    console.log("✅ File exists!");
+    res.sendFile(filePath);
+  } else {
+    console.log("❌ File not found");
+    res.status(404).json({ error: 'File not found', path: filePath, exists: false });
+  }
 });
 
 app.use("/api/auth", authRoutes);
 app.use("/api/courses", courseRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/payments", paymentRoutes);
-app.use("/api/contact", contactRoutes); 
+app.use("/api/contact", contactRoutes);
 app.use("/api/content", contentRoutes);
 app.use('/api/admin/users', adminUserRoutes);
+app.use('/api/certificates', certificateRoutes);
 app.use('/api/teacher', teacherRoutes);
-
+app.use('/api/student', studentRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+// app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 /* ======================
    Error Handling
 ====================== */
 
-// 404 handler
+// 404 handler (MUST BE AFTER ALL ROUTES)
 app.use((req, res) => {
+  console.log("❌ 404 - Route not found:", req.method, req.path);
   res.status(404).json({ message: "Route not found" });
 });
 
 // Global error handler
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error("💥 Server error:", err.stack);
   res.status(500).json({
     message: "Server error",
     error: process.env.NODE_ENV === "development" ? err.message : undefined
@@ -93,9 +154,10 @@ app.use((err, req, res, next) => {
 /* ======================
    Start Server
 ====================== */
-
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📁 Static files directory: ${path.join(__dirname, "uploads")}`);
+  console.log(`🌐 CORS enabled for all origins`);
 });

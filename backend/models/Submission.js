@@ -15,15 +15,32 @@ const submissionSchema = new mongoose.Schema(
     },
     content: {
       type: String,
-      required: [true, 'Please provide submission content']
+      default: ''
     },
-    file: {
-      type: String // URL or path to uploaded file
+    files: [{
+      filename: String,
+      originalName: String,
+      path: String,
+      mimetype: String,
+      size: Number,
+      uploadedAt: { type: Date, default: Date.now }
+    }],
+    status: {
+      type: String,
+      enum: ['draft', 'submitted', 'returned', 'graded'],
+      default: 'draft'
     },
     submittedAt: {
-      type: Date,
-      default: Date.now
+      type: Date
     },
+    privateComments: [{
+      user: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+      },
+      comment: String,
+      createdAt: { type: Date, default: Date.now }
+    }],
     grade: {
       type: Number,
       min: 0
@@ -44,8 +61,7 @@ const submissionSchema = new mongoose.Schema(
   }
 );
 
-// Index for faster queries
 submissionSchema.index({ assignment: 1, student: 1 });
-submissionSchema.index({ graded: 1 });
+submissionSchema.index({ status: 1 });
 
 module.exports = mongoose.model('Submission', submissionSchema);

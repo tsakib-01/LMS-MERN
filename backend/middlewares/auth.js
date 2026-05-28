@@ -51,8 +51,6 @@ const protect = async (req, res, next) => {
   }
 };
 
-
-
 const authorize = (...roles) => {
   return (req, res, next) => {
     console.log('🔒 Checking role authorization...');

@@ -82,6 +82,23 @@ const courseSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Quiz'
   }],
+// Add after the quizzes field
+curriculumOrder: [{
+  itemType: {
+    type: String,
+    enum: ['lesson', 'assignment', 'quiz'],
+    required: true
+  },
+  itemId: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true,
+    refPath: 'curriculumOrder.itemType'
+  },
+  order: {
+    type: Number,
+    required: true
+  }
+}],
 
   enrolledStudents: [{
     type: mongoose.Schema.Types.ObjectId,

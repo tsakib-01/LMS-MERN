@@ -4,8 +4,37 @@ const Assignment = require('../models/Assignment');
 const Submission = require('../models/Submission');
 const Quiz = require('../models/Quiz');
 const User = require('../models/User');
+const Announcement = require('../models/Announcement');
+const Message = require('../models/Message');
+const Certificate = require('../models/Certificate');
+const Transaction = require('../models/Transaction');
 
-// Dashboard
+// Save curriculum order
+exports.saveCurriculumOrder = async (req, res) => {
+  try {
+    const { courseId } = req.params;
+    const { curriculumOrder } = req.body;
+
+    const course = await Course.findOne({
+      _id: courseId,
+      instructor: req.user._id
+    });
+
+    if (!course) {
+      return res.status(404).json({ message: 'Course not found' });
+    }
+
+    course.curriculumOrder = curriculumOrder;
+    await course.save();
+
+    res.json({ success: true, curriculumOrder: course.curriculumOrder });
+  } catch (error) {
+    console.error('💥 Error saving curriculum order:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+
 exports.getDashboard = async (req, res) => {
   try {
     const teacherId = req.user._id;
@@ -36,13 +65,20 @@ exports.getDashboard = async (req, res) => {
       .limit(3)
       .populate('enrolledStudents', 'name');
 
+    // Calculate instructor earnings (80% of sale) and gross sales
+    const transactions = await Transaction.find({ teacher: teacherId, status: 'completed' });
+    const totalEarnings = transactions.reduce((sum, tx) => sum + tx.teacherEarnings, 0);
+    const totalSales = transactions.reduce((sum, tx) => sum + tx.amount, 0);
+
     res.json({
       success: true,
       stats: {
         totalCourses: courses.length,
         totalStudents: uniqueStudents.size,
         pendingSubmissions,
-        activeCourses: courses.filter(c => c.published).length
+        activeCourses: courses.filter(c => c.isPublished).length,
+        totalEarnings: parseFloat(totalEarnings.toFixed(2)),
+        totalSales: parseFloat(totalSales.toFixed(2))
       },
       recentCourses
     });
@@ -50,9 +86,6 @@ exports.getDashboard = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
-
-// Get all courses
-// controllers/teacher.js - Update this function:
 
 // Get all courses
 exports.getCourses = async (req, res) => {
@@ -64,7 +97,7 @@ exports.getCourses = async (req, res) => {
     // Map to use 'published' instead of 'isPublished' for frontend
     const mappedCourses = courses.map(course => ({
       ...course.toObject(),
-      published: course.isPublished // Add this for backward compatibility
+      published: course.isPublished
     }));
 
     res.json({ success: true, courses: mappedCourses });
@@ -72,8 +105,6 @@ exports.getCourses = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
-
-// controllers/teacher.js - Add these new functions:
 
 // Add lesson to course
 exports.addLesson = async (req, res) => {
@@ -175,7 +206,7 @@ exports.deleteLesson = async (req, res) => {
 exports.reorderLessons = async (req, res) => {
   try {
     const { courseId } = req.params;
-    const { lessons } = req.body; // Array of { lessonId, order }
+    const { lessons } = req.body;
     
     const course = await Course.findOne({
       _id: courseId,
@@ -193,7 +224,6 @@ exports.reorderLessons = async (req, res) => {
       }
     });
 
-    // Sort lessons by order
     course.lessons.sort((a, b) => a.order - b.order);
     await course.save();
 
@@ -203,44 +233,29 @@ exports.reorderLessons = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
-
 // Create course
 exports.createCourse = async (req, res) => {
   try {
-    console.log('📝 Creating course...');
-    console.log('Request body:', req.body);
-    console.log('Teacher ID:', req.user._id);
+    const { title, description, category, price } = req.body;
 
-    const { title, description, category, thumbnail, price } = req.body;
-
+    const parsedPrice = parseFloat(price) || 0;
     const course = await Course.create({
       title,
       description,
       category,
-      thumbnail,
-      price: price || 0,
+      thumbnail: req.file ? req.file.path : null, // ✅ Cloudinary URL from Multer
+      price: parsedPrice,
+      isPaid: parsedPrice > 0,
       instructor: req.user._id,
       isPublished: false
     });
 
-    console.log('✅ Course created:', course._id);
     res.status(201).json({ success: true, course });
   } catch (error) {
     console.error('💥 Error creating course:', error);
-    console.error('Error name:', error.name);
-    console.error('Error message:', error.message);
-    if (error.errors) {
-      console.error('Validation errors:', error.errors);
-    }
-    
-    res.status(500).json({ 
-      message: 'Server error', 
-      error: error.message,
-      details: error.errors
-    });
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
-
 // Get single course
 exports.getCourse = async (req, res) => {
   try {
@@ -260,20 +275,53 @@ exports.getCourse = async (req, res) => {
 };
 
 // Update course
+// Update course
+const fs = require('fs');
+const path = require('path');
+
+const { cloudinary } = require('../utils/upload');
+
 exports.updateCourse = async (req, res) => {
   try {
+    const update = { ...req.body };
+
+    // Remove base64 fields — we never store base64
+    delete update.thumbnailBase64;
+
+    if (update.price !== undefined) {
+      const parsedPrice = parseFloat(update.price) || 0;
+      update.price = parsedPrice;
+      update.isPaid = parsedPrice > 0;
+    }
+
+    // ✅ If a new image was uploaded via Multer → Cloudinary
+    if (req.file) {
+      // Delete old Cloudinary image to save storage
+      const existing = await Course.findById(req.params.id).select('thumbnail');
+      if (existing?.thumbnail?.startsWith('https://res.cloudinary.com')) {
+        try {
+          // Extract public_id from URL
+          const parts = existing.thumbnail.split('/');
+          const publicId = 'lms/thumbnails/' + parts[parts.length - 1].split('.')[0];
+          await cloudinary.uploader.destroy(publicId);
+        } catch (e) {
+          console.warn('Could not delete old Cloudinary image:', e.message);
+        }
+      }
+      update.thumbnail = req.file.path; // ✅ Cloudinary URL
+    }
+
     const course = await Course.findOneAndUpdate(
       { _id: req.params.id, instructor: req.user._id },
-      req.body,
+      update,
       { new: true, runValidators: true }
     );
 
-    if (!course) {
-      return res.status(404).json({ message: 'Course not found' });
-    }
+    if (!course) return res.status(404).json({ message: 'Course not found' });
 
     res.json({ success: true, course });
   } catch (error) {
+    console.error('💥 Error updating course:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -296,8 +344,6 @@ exports.deleteCourse = async (req, res) => {
   }
 };
 
-// controllers/teacher.js - Update this function:
-
 // Toggle publish status
 exports.togglePublish = async (req, res) => {
   try {
@@ -305,12 +351,13 @@ exports.togglePublish = async (req, res) => {
 
     const course = await Course.findOneAndUpdate(
       { _id: req.params.id, instructor: req.user._id },
-      { isPublished: published }, // Changed from 'published' to 'isPublished'
+      { isPublished: published },
       { new: true }
     );
 
     if (!course) {
-      return res.status(404).json({ message: 'Course not found' });
+      return 
+      res.status(404).json({ message: 'Course not found' });
     }
 
     res.json({ success: true, course });
@@ -339,28 +386,56 @@ exports.getAssignments = async (req, res) => {
 // Create assignment
 exports.createAssignment = async (req, res) => {
   try {
-    const { title, description, course, deadline, maxGrade } = req.body;
+    console.log('📝 Creating assignment...');
+    console.log('Request body:', req.body);
+    console.log('Files:', req.files);
+    console.log('User:', req.user);
 
-    // Verify teacher owns the course
+    const { title, description, course, deadline, maxGrade } = req.body;
+    
+    // Validate required fields
+    if (!title || !description || !course || !deadline) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide all required fields: title, description, course, deadline'
+      });
+    }
+
+    // Handle file attachments if any
+    const attachments = req.files ? req.files.map(file => file.path || `/uploads/assignments/${file.filename}`) : [];
+    console.log('Attachments:', attachments);
+    
+    // Verify the course exists and teacher owns it
     const courseDoc = await Course.findOne({
       _id: course,
       instructor: req.user._id
     });
-
+    console.log('Course found:', courseDoc);
+    
     if (!courseDoc) {
-      return res.status(403).json({ message: 'Not authorized' });
+      return res.status(404).json({
+        success: false,
+        message: 'Course not found or you are not authorized'
+      });
     }
 
+    // Create the assignment
     const assignment = await Assignment.create({
       title,
       description,
       course,
+      teacher: req.user._id,  // Add the teacher field
       deadline,
-      maxGrade: maxGrade || 100
+      maxGrade: maxGrade || 100,
+      attachments
     });
 
+    await assignment.populate('course', 'title');
+
+    console.log('✅ Assignment created:', assignment._id);
     res.status(201).json({ success: true, assignment });
   } catch (error) {
+    console.error('💥 Error creating assignment:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -375,7 +450,6 @@ exports.getAssignment = async (req, res) => {
       return res.status(404).json({ message: 'Assignment not found' });
     }
 
-    // Verify teacher owns the course
     const course = await Course.findOne({
       _id: assignment.course._id,
       instructor: req.user._id
@@ -400,7 +474,6 @@ exports.updateAssignment = async (req, res) => {
       return res.status(404).json({ message: 'Assignment not found' });
     }
 
-    // Verify teacher owns the course
     const course = await Course.findOne({
       _id: assignment.course,
       instructor: req.user._id
@@ -428,7 +501,6 @@ exports.deleteAssignment = async (req, res) => {
       return res.status(404).json({ message: 'Assignment not found' });
     }
 
-    // Verify teacher owns the course
     const course = await Course.findOne({
       _id: assignment.course,
       instructor: req.user._id
@@ -477,7 +549,6 @@ exports.gradeSubmission = async (req, res) => {
       return res.status(404).json({ message: 'Submission not found' });
     }
 
-    // Verify teacher owns the course
     const assignment = await Assignment.findById(submission.assignment);
     const course = await Course.findOne({
       _id: assignment.course,
@@ -522,7 +593,6 @@ exports.createQuiz = async (req, res) => {
   try {
     const { title, description, course, duration, passingScore, questions } = req.body;
 
-    // Verify teacher owns the course
     const courseDoc = await Course.findOne({
       _id: course,
       instructor: req.user._id
@@ -557,7 +627,6 @@ exports.getQuiz = async (req, res) => {
       return res.status(404).json({ message: 'Quiz not found' });
     }
 
-    // Verify teacher owns the course
     const course = await Course.findOne({
       _id: quiz.course._id,
       instructor: req.user._id
@@ -582,7 +651,6 @@ exports.updateQuiz = async (req, res) => {
       return res.status(404).json({ message: 'Quiz not found' });
     }
 
-    // Verify teacher owns the course
     const course = await Course.findOne({
       _id: quiz.course,
       instructor: req.user._id
@@ -610,7 +678,6 @@ exports.deleteQuiz = async (req, res) => {
       return res.status(404).json({ message: 'Quiz not found' });
     }
 
-    // Verify teacher owns the course
     const course = await Course.findOne({
       _id: quiz.course,
       instructor: req.user._id
@@ -638,7 +705,6 @@ exports.getQuizResults = async (req, res) => {
       return res.status(404).json({ message: 'Quiz not found' });
     }
 
-    // Verify teacher owns the course
     const course = await Course.findOne({
       _id: quiz.course,
       instructor: req.user._id
@@ -660,7 +726,6 @@ exports.getEnrolledStudents = async (req, res) => {
     const courses = await Course.find({ instructor: req.user._id })
       .populate('enrolledStudents', 'name email createdAt');
 
-    // Create unique student list
     const studentMap = new Map();
     courses.forEach(course => {
       course.enrolledStudents.forEach(student => {
@@ -696,11 +761,9 @@ exports.getStudentProgress = async (req, res) => {
       enrolledStudents: studentId
     }).select('title modules');
 
-    // Get student's submissions
     const submissions = await Submission.find({ student: studentId })
       .populate('assignment', 'title course');
 
-    // Get student's quiz attempts
     const quizzes = await Quiz.find({
       'attempts.student': studentId
     }).select('title attempts');
@@ -715,6 +778,430 @@ exports.getStudentProgress = async (req, res) => {
       }))
     });
   } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// ========================================
+// ANNOUNCEMENTS / NOTICES
+// ========================================
+
+exports.getAnnouncements = async (req, res) => {
+  try {
+    const courses = await Course.find({ instructor: req.user._id }).select('_id');
+    const courseIds = courses.map(c => c._id);
+
+    const announcements = await Announcement.find({ 
+      course: { $in: courseIds } 
+    })
+      .populate('course', 'title')
+      .sort('-isPinned -createdAt');
+
+    res.json({ success: true, announcements });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+exports.createAnnouncement = async (req, res) => {
+  try {
+    const { title, content, course, importance, isPinned, attachments } = req.body;
+
+    const courseDoc = await Course.findOne({
+      _id: course,
+      instructor: req.user._id
+    });
+
+    if (!courseDoc) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    const announcement = await Announcement.create({
+      title,
+      content,
+      course,
+      teacher: req.user._id,
+      importance: importance || 'normal',
+      isPinned: isPinned || false,
+      attachments: attachments || []
+    });
+
+    await announcement.populate('course', 'title');
+
+    res.status(201).json({ success: true, announcement });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+exports.updateAnnouncement = async (req, res) => {
+  try {
+    const announcement = await Announcement.findById(req.params.id);
+
+    if (!announcement) {
+      return res.status(404).json({ message: 'Announcement not found' });
+    }
+
+    if (announcement.teacher.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    Object.assign(announcement, req.body);
+    await announcement.save();
+    await announcement.populate('course', 'title');
+
+    res.json({ success: true, announcement });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+exports.deleteAnnouncement = async (req, res) => {
+  try {
+    const announcement = await Announcement.findById(req.params.id);
+
+    if (!announcement) {
+      return res.status(404).json({ message: 'Announcement not found' });
+    }
+
+    if (announcement.teacher.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    await announcement.deleteOne();
+
+    res.json({ success: true, message: 'Announcement deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// ========================================
+// MESSAGES / Q&A
+// ========================================
+
+exports.getMessages = async (req, res) => {
+  try {
+    const { status, course } = req.query;
+    
+    const query = {
+      recipient: req.user._id
+    };
+
+    if (status) query.status = status;
+    if (course) query.course = course;
+
+    const messages = await Message.find(query)
+      .populate('sender', 'name email avatar')
+      .populate('course', 'title')
+      .sort('-createdAt');
+
+    res.json({ success: true, messages });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+exports.replyToMessage = async (req, res) => {
+  try {
+    const { content } = req.body;
+    
+    const message = await Message.findById(req.params.id);
+
+    if (!message) {
+      return res.status(404).json({ message: 'Message not found' });
+    }
+
+    if (message.recipient.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    message.replies.push({
+      sender: req.user._id,
+      content,
+      createdAt: new Date()
+    });
+
+    message.status = 'replied';
+    await message.save();
+    await message.populate('sender', 'name email');
+    await message.populate('course', 'title');
+
+    res.json({ success: true, message });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+exports.markMessageAsRead = async (req, res) => {
+  try {
+    const message = await Message.findById(req.params.id);
+
+    if (!message) {
+      return res.status(404).json({ message: 'Message not found' });
+    }
+
+    if (message.recipient.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    message.status = 'read';
+    await message.save();
+
+    res.json({ success: true, message });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// ========================================
+// COURSE ANALYTICS
+// ========================================
+
+exports.getCourseAnalytics = async (req, res) => {
+  try {
+    const courseId = req.params.courseId;
+
+    const course = await Course.findOne({
+      _id: courseId,
+      instructor: req.user._id
+    }).populate('enrolledStudents', 'name email');
+
+    if (!course) {
+      return res.status(404).json({ message: 'Course not found' });
+    }
+
+    const totalStudents = course.enrolledStudents.length;
+
+    const quizzes = await Quiz.find({ course: courseId });
+    
+    let totalQuizAttempts = 0;
+    let totalQuizScore = 0;
+    
+    quizzes.forEach(quiz => {
+      quiz.attempts.forEach(attempt => {
+        totalQuizAttempts++;
+        totalQuizScore += attempt.score;
+      });
+    });
+
+    const averageQuizScore = totalQuizAttempts > 0 
+      ? (totalQuizScore / totalQuizAttempts).toFixed(2)
+      : 0;
+
+    const assignments = await Assignment.find({ course: courseId });
+    const assignmentIds = assignments.map(a => a._id);
+    
+    const submissions = await Submission.find({
+      assignment: { $in: assignmentIds }
+    });
+
+    const gradedSubmissions = submissions.filter(s => s.graded);
+    const averageAssignmentGrade = gradedSubmissions.length > 0
+      ? (gradedSubmissions.reduce((sum, s) => sum + s.grade, 0) / gradedSubmissions.length).toFixed(2)
+      : 0;
+
+    const studentsWithAllSubmissions = {};
+    submissions.forEach(sub => {
+      const studentId = sub.student.toString();
+      if (!studentsWithAllSubmissions[studentId]) {
+        studentsWithAllSubmissions[studentId] = 0;
+      }
+      studentsWithAllSubmissions[studentId]++;
+    });
+
+    const completedStudents = Object.values(studentsWithAllSubmissions)
+      .filter(count => count >= assignments.length).length;
+
+    const completionRate = totalStudents > 0
+      ? ((completedStudents / totalStudents) * 100).toFixed(2)
+      : 0;
+
+    const studentPerformance = await Promise.all(
+      course.enrolledStudents.map(async (student) => {
+        const studentSubmissions = await Submission.find({
+          assignment: { $in: assignmentIds },
+          student: student._id
+        });
+
+        const studentQuizAttempts = quizzes.reduce((acc, quiz) => {
+          const attempts = quiz.attempts.filter(
+            a => a.student.toString() === student._id.toString()
+          );
+          return acc.concat(attempts);
+        }, []);
+
+        const avgGrade = studentSubmissions.filter(s => s.graded).length > 0
+          ? (studentSubmissions.filter(s => s.graded)
+              .reduce((sum, s) => sum + s.grade, 0) / 
+             studentSubmissions.filter(s => s.graded).length).toFixed(2)
+          : 0;
+
+        const avgQuizScore = studentQuizAttempts.length > 0
+          ? (studentQuizAttempts.reduce((sum, a) => sum + a.score, 0) / 
+             studentQuizAttempts.length).toFixed(2)
+          : 0;
+
+        return {
+          student: {
+            _id: student._id,
+            name: student.name,
+            email: student.email
+          },
+          assignmentsCompleted: studentSubmissions.length,
+          totalAssignments: assignments.length,
+          averageGrade: avgGrade,
+          quizzesCompleted: studentQuizAttempts.length,
+          totalQuizzes: quizzes.length,
+          averageQuizScore: avgQuizScore,
+          progress: assignments.length > 0
+            ? ((studentSubmissions.length / assignments.length) * 100).toFixed(2)
+            : 0
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      analytics: {
+        course: {
+          _id: course._id,
+          title: course.title
+        },
+        overview: {
+          totalStudents,
+          totalAssignments: assignments.length,
+          totalQuizzes: quizzes.length,
+          completionRate: parseFloat(completionRate),
+          averageQuizScore: parseFloat(averageQuizScore),
+          averageAssignmentGrade: parseFloat(averageAssignmentGrade)
+        },
+        studentPerformance
+      }
+    });
+  } catch (error) {
+    console.error('Error in getCourseAnalytics:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// ========================================
+// CERTIFICATE MANAGEMENT
+// ========================================
+
+exports.getCertificates = async (req, res) => {
+  try {
+    const courses = await Course.find({ instructor: req.user._id }).select('_id');
+    const courseIds = courses.map(c => c._id);
+
+    const certificates = await Certificate.find({
+      course: { $in: courseIds }
+    })
+      .populate('student', 'name email')
+      .populate('course', 'title')
+      .sort('-createdAt');
+
+    res.json({ success: true, certificates });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+exports.approveCertificate = async (req, res) => {
+  try {
+    const certificate = await Certificate.findById(req.params.id);
+
+    if (!certificate) {
+      return res.status(404).json({ message: 'Certificate not found' });
+    }
+
+    const course = await Course.findOne({
+      _id: certificate.course,
+      instructor: req.user._id
+    });
+
+    if (!course) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    certificate.status = 'approved';
+    certificate.approvedBy = req.user._id;
+    certificate.approvedAt = new Date();
+    await certificate.save();
+
+    await certificate.populate('student', 'name email');
+    await certificate.populate('course', 'title');
+
+    res.json({ success: true, certificate });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+exports.generateCertificate = async (req, res) => {
+  try {
+    const { studentId, courseId } = req.body;
+
+    const course = await Course.findOne({
+      _id: courseId,
+      instructor: req.user._id
+    });
+
+    if (!course) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    const existingCert = await Certificate.findOne({
+      student: studentId,
+      course: courseId
+    });
+
+    if (existingCert) {
+      return res.status(400).json({ message: 'Certificate already exists for this student' });
+    }
+
+    const assignments = await Assignment.find({ course: courseId });
+    const assignmentIds = assignments.map(a => a._id);
+    
+    const submissions = await Submission.find({
+      assignment: { $in: assignmentIds },
+      student: studentId,
+      graded: true
+    });
+
+    const quizzes = await Quiz.find({ course: courseId });
+    const quizAttempts = quizzes.reduce((acc, quiz) => {
+      const attempts = quiz.attempts.filter(
+        a => a.student.toString() === studentId.toString()
+      );
+      return acc.concat(attempts);
+    }, []);
+
+    const avgAssignmentGrade = submissions.length > 0
+      ? submissions.reduce((sum, s) => sum + s.grade, 0) / submissions.length
+      : 0;
+
+    const avgQuizScore = quizAttempts.length > 0
+      ? quizAttempts.reduce((sum, a) => sum + a.score, 0) / quizAttempts.length
+      : 0;
+
+    const finalGrade = ((avgAssignmentGrade + avgQuizScore) / 2).toFixed(2);
+
+    const certificate = await Certificate.create({
+      student: studentId,
+      course: courseId,
+      teacher: req.user._id,
+      completionDate: new Date(),
+      grade: finalGrade,
+      status: 'pending'
+    });
+
+    await certificate.populate('student', 'name email');
+    await certificate.populate('course', 'title');
+
+    res.status(201).json({ success: true, certificate });
+  } catch (error) {
+    console.error('Error generating certificate:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };

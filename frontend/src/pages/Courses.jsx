@@ -1,6 +1,7 @@
 // pages/Courses.jsx
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 
 const Courses = () => {
   const [courses, setCourses] = useState([]);
@@ -10,6 +11,9 @@ const Courses = () => {
   const [selectedLevel, setSelectedLevel] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
   const categories = [
     'All',
@@ -35,7 +39,7 @@ const Courses = () => {
   const fetchCourses = async () => {
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:5000/api/courses');
+      const response = await fetch(`${API_URL}/api/courses`);
       
       if (response.ok) {
         const data = await response.json();
@@ -215,16 +219,22 @@ const Courses = () => {
             {filteredCourses.map((course) => (
               <div
                 key={course._id}
-                onClick={() => navigate(`/courses/${course._id}`)}
+                onClick={() => {
+                  if (user?.role === 'admin') {
+                    alert('Admins cannot participate in or view course details as students.');
+                    return;
+                  }
+                  navigate(`/courses/${course._id}`);
+                }}
                 className="bg-white rounded-xl shadow-sm hover:shadow-xl transition-all transform hover:-translate-y-1 cursor-pointer border border-gray-100 overflow-hidden"
               >
                 {/* Course Image */}
                 <div className="relative">
                   <img
-                    src={course.thumbnail || "https://via.placeholder.com/400x225"}
-                    alt={course.title}
-                    className="w-full h-48 object-cover"
-                  />
+    src={course.thumbnail || "https://via.placeholder.com/400x225"}
+    alt={course.title}
+    className="w-full h-48 object-cover"
+  />
                   {course.isPublished && (
                     <span className="absolute top-4 right-4 bg-green-500 text-white text-xs font-semibold px-3 py-1 rounded-full">
                       Published
@@ -308,7 +318,7 @@ const Courses = () => {
           </div>
         )}
 
-        {/* Category Quick Filters (Optional) */}
+        {/* Category Quick Filters */}
         {!loading && courses.length > 0 && (
           <div className="mt-12 bg-white rounded-lg shadow-md p-6">
             <h3 className="text-lg font-bold text-gray-900 mb-4">Browse by Category</h3>

@@ -16,21 +16,36 @@ exports.getMe = async (req, res) => {
 
 exports.updateProfile = async (req, res) => {
   try {
-    const { name, email, bio } = req.body;
+    const { name, bio } = req.body;
     const user = await User.findById(req.user._id);
-    
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    if (name) user.name = name;
+    if (bio)  user.bio  = bio;
+
+    if (req.file) {
+      // ✅ store a consistent path
+      user.avatar = `/uploads/avatars/${req.file.filename}`; 
     }
-    
-    // Update profile fields
-    user.name = name || user.name;
-    user.email = email || user.email;
-    user.bio = bio || user.bio;
-    
+
     await user.save();
-    
-    res.json({ success: true, user });
+
+    const updated = await User.findById(user._id).select('-password');
+
+    // ✅ Return a flat, predictable shape that matches what AuthContext stores
+    res.json({
+      success: true,
+      user: {
+        id:     updated._id,
+        _id:    updated._id,
+        name:   updated.name,
+        email:  updated.email,
+        role:   updated.role,
+        avatar: updated.avatar || null,
+        bio:    updated.bio    || null,
+      }
+    });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -40,12 +55,10 @@ exports.getDashboard = async (req, res) => {
   try {
     const user = req.user;
     
-    // Get enrolled courses with progress
     const enrolledCourses = await Course.find({
       _id: { $in: user.enrolledCourses.map(e => e.course) }
     }).select('title thumbnail lessons');
     
-    // Calculate progress for each course
     const coursesWithProgress = enrolledCourses.map(course => {
       const enrolled = user.enrolledCourses.find(e => e.course.toString() === course._id.toString());
       return {
@@ -55,7 +68,6 @@ exports.getDashboard = async (req, res) => {
       };
     });
     
-    // Get created courses
     const createdCourses = await Course.find({
       instructor: user._id
     }).select('title thumbnail enrolledStudents');
@@ -69,6 +81,84 @@ exports.getDashboard = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
+// ── Bookmarks ─────────────────────────────────────────────────────────────────
+
+exports.toggleBookmark = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    const courseId = req.params.courseId;
+
+    const idx = user.bookmarks.findIndex(id => id.toString() === courseId);
+
+    if (req.method === 'DELETE' || idx !== -1) {
+      user.bookmarks = user.bookmarks.filter(id => id.toString() !== courseId);
+      await user.save();
+      return res.json({ bookmarked: false, bookmarks: user.bookmarks });
+    } else {
+      user.bookmarks.push(courseId);
+      await user.save();
+      return res.json({ bookmarked: true, bookmarks: user.bookmarks });
+    }
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.getBookmarks = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id)
+      .populate('bookmarks', 'title thumbnail instructor');
+    res.json({ bookmarks: user.bookmarks });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ── Recently Viewed ───────────────────────────────────────────────────────────
+
+exports.trackRecentlyViewed = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    const courseId = req.params.courseId;
+
+    user.recentlyViewed = user.recentlyViewed.filter(
+      v => v.course.toString() !== courseId
+    );
+
+    user.recentlyViewed.unshift({ course: courseId, viewedAt: new Date() });
+
+    if (user.recentlyViewed.length > 10) {
+      user.recentlyViewed = user.recentlyViewed.slice(0, 10);
+    }
+
+    await user.save();
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ✅ Only one getRecentlyViewed — flattens data correctly for the frontend
+exports.getRecentlyViewed = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id)
+      .populate('recentlyViewed.course', 'title thumbnail instructor');
+    
+    const viewed = user.recentlyViewed
+      .filter(v => v.course) // guard against deleted courses
+      .map(v => ({
+        ...v.course.toObject(),
+        viewedAt: v.viewedAt
+      }));
+
+    res.json({ recentlyViewed: viewed });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ── Admin ─────────────────────────────────────────────────────────────────────
 
 exports.getAdminUsers = async (req, res) => {
   try {
