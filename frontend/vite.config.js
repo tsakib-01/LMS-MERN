@@ -19,6 +19,6 @@ export default defineConfig({
   define: {
     'import.meta.env.VITE_API_URL': process.env.VITE_API_URL
       ? JSON.stringify(process.env.VITE_API_URL)
-      : 'window.location.origin'
+      : 'globalThis.VITE_API_URL'
   }
 })
