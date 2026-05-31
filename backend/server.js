@@ -74,12 +74,32 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
    MongoDB Connection
 ====================== */
 const connectDB = async () => {
+  if (!process.env.MONGODB_URI) {
+    console.error("❌ MONGODB_URI is not defined in environment variables!");
+    return;
+  }
   try {
     await mongoose.connect(process.env.MONGODB_URI);
     console.log("✅ MongoDB connected");
+
+    // Automatically seed default admin if not exists
+    const User = require('./models/User');
+    const adminEmail = 'admin@email.com';
+    const adminExists = await User.findOne({ email: adminEmail });
+    if (!adminExists) {
+      await User.create({
+        name: 'Admin',
+        email: adminEmail,
+        password: '777777', // Will be hashed automatically by userSchema.pre('save') hook
+        role: 'admin',
+        isActive: true
+      });
+      console.log(`✅ Default admin account created successfully (${adminEmail} / 777777)`);
+    } else {
+      console.log(`ℹ️ Admin account (${adminEmail}) already exists in the database`);
+    }
   } catch (error) {
     console.error("❌ MongoDB connection error:", error.message);
-    process.exit(1);
   }
 };
 
@@ -156,8 +176,12 @@ app.use((err, req, res, next) => {
 ====================== */
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📁 Static files directory: ${path.join(__dirname, "uploads")}`);
-  console.log(`🌐 CORS enabled for all origins`);
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`📁 Static files directory: ${path.join(__dirname, "uploads")}`);
+    console.log(`🌐 CORS enabled for all origins`);
+  });
+}
+
+module.exports = app;
