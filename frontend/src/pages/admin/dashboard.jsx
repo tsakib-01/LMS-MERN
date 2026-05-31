@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import CertificateTab from './CertificateTab';
+import CertificateTab from './AdminCertificateTab';
 import {
   Users, FileText, Mail, Inbox, Award, Search, RefreshCw,
   CheckCircle, XCircle, UserPlus, Shield, GraduationCap,
