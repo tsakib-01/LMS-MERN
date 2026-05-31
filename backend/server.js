@@ -132,6 +132,38 @@ app.get("/", (req, res) => {
   res.send("LMS API is running");
 });
 
+// Diagnostic route to check DB connection & Seeding on Vercel
+app.get("/api/db-debug", async (req, res) => {
+  try {
+    const dbStatus = mongoose.connection.readyState;
+    const states = ["disconnected", "connected", "connecting", "disconnecting"];
+    
+    let adminFound = false;
+    let totalUsers = 0;
+    
+    if (dbStatus === 1) {
+      const User = require('./models/User');
+      totalUsers = await User.countDocuments();
+      const admin = await User.findOne({ email: 'admin@email.com' });
+      adminFound = !!admin;
+    }
+    
+    res.json({
+      success: true,
+      mongodb_uri_exists: !!process.env.MONGODB_URI,
+      connection_state: states[dbStatus],
+      total_users: totalUsers,
+      admin_user_exists: adminFound
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: err.message,
+      stack: err.stack
+    });
+  }
+});
+
 // Debug route to test file serving
 app.get("/test-upload/:folder/:filename", (req, res) => {
   const { folder, filename } = req.params;
