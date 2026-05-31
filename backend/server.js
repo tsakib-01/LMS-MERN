@@ -29,14 +29,20 @@ app.use(express.urlencoded({ extended: true }));
    (log → headers → serve — in this exact order)
 ====================== */
 
-// Auto-create upload directories if they don't exist
-['uploads/thumbnails', 'uploads/attachments'].forEach(dir => {
-  const full = path.join(__dirname, dir);
-  if (!fs.existsSync(full)) {
-    fs.mkdirSync(full, { recursive: true });
-    console.log(`📁 Created directory: ${full}`);
-  }
-});
+// Auto-create upload directories if they don't exist (bypass on Vercel read-only FS)
+if (!process.env.VERCEL) {
+  ['uploads/thumbnails', 'uploads/attachments'].forEach(dir => {
+    const full = path.join(__dirname, dir);
+    if (!fs.existsSync(full)) {
+      try {
+        fs.mkdirSync(full, { recursive: true });
+        console.log(`📁 Created directory: ${full}`);
+      } catch (err) {
+        console.error(`❌ Failed to create directory ${full}:`, err.message);
+      }
+    }
+  });
+}
 
 // 1. Log first
 app.use("/uploads", (req, res, next) => {

@@ -7,10 +7,14 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-// Ensure upload directory exists for student submissions
+// Ensure upload directory exists for student submissions (bypass on Vercel read-only FS)
 const uploadDir = 'uploads/submissions';
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
+if (!process.env.VERCEL && !fs.existsSync(uploadDir)) {
+  try {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  } catch (err) {
+    console.error(`❌ Failed to create upload directory ${uploadDir}:`, err.message);
+  }
 }
 
 // Configure storage for student submissions
